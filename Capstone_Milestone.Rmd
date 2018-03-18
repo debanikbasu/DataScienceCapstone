@@ -1,0 +1,157 @@
+---
+title: "Capstone Project_Milestone Report"
+author: "Debanik Basu"
+date: "13 February 2018"
+output: html_document
+---
+
+## Introduction
+
+This milestone report is part of the Capstone Project for the Data Science Specialization. This document attempts to perform some exploratory analysis of the data and view some exploratory features of the given data sets using natural language processing tools.
+
+## Getting and loading data
+
+THe first task it to install the required packages and load the libraries.
+
+```{r warning=FALSE,message=FALSE}
+library(tm)
+library(RWeka)
+library(textcat)
+library(ngram)
+library(ggplot2)
+```
+
+We will then extract the data from the source files.
+
+```{r warning=FALSE,message=FALSE}
+con <- file("en_US.twitter.txt", "r")
+twitter_lines<-readLines(con)
+close(con)
+con1 <- file("en_US.blogs.txt", "r")
+blogs_lines<-readLines(con1)
+close(con1)
+con2 <- file("en_US.news.txt", "r")
+news_lines<-readLines(con2)
+close(con2)
+```
+
+## Basic summary
+
+We will take a quick look at the size of the data sets that we need to deal with.
+
+```{r}
+sum_data <- as.data.frame(matrix(nrow = 3,ncol=4))
+names(sum_data) <- c("source","size(in MB)","lines","words")
+sum_data[1,]<-c("twitter",round(file.size("en_US.twitter.txt")/1024^2,2),length(twitter_lines),wordcount(twitter_lines))
+sum_data[2,]<-c("blogs",round(file.size("en_US.blogs.txt")/1024^2,2),length(blogs_lines),wordcount(blogs_lines))
+sum_data[3,]<-c("news",round(file.size("en_US.news.txt")/1024^2,2),length(news_lines),wordcount(news_lines))
+sum_data
+```
+
+## Pre-processing and clean-up
+
+As we can observe, the data sets are large in size. This makes it diffuclt to work with them directly. It is better to therefore extract a sample of the data set for further analysis.
+
+```{r}
+#The sample size has been chosen on a random basis. Taking too large a sample set may slow down operations.
+twit <- sample(twitter_lines,5000,replace=FALSE)
+blogs <- sample(blogs_lines,5000,replace=FALSE)
+news <- sample(news_lines,5000,replace=FALSE)
+
+#combine the data sets
+all_mix <- c(twit,blogs,news)
+
+#free up memory
+rm(twit)
+rm(blogs)
+rm(news)
+```
+
+We will now need to clean-up the data. We will first create a corpus and then perform the following operations on it:
+
+1. Remove numbers
+2. Remove punctuation
+3. Remove whitespace
+4. Convert to lower case
+5. Remove profanity
+
+The output will then be stored in a dataframe.
+
+```{r}
+corpus<-VCorpus(VectorSource(all_mix))
+corpus<-tm_map(corpus, removeNumbers)
+corpus<-tm_map(corpus, removePunctuation, preserve_intra_word_dashes=TRUE)
+corpus<-tm_map(corpus, stripWhitespace)
+corpus<-tm_map(corpus, content_transformer(tolower))
+#corpus <- tm_map(corpus, removeWords, stopwords("en"))
+badwords <- read.csv('badwords.txt',header=F)
+badwordlist <- rep(as.character(badwords[[1]]))
+corpus <- tm_map(corpus, removeWords, badwordlist)
+
+mydf<-data.frame(rawtext = sapply(corpus, as.character), stringsAsFactors=FALSE)
+mydf$language<-textcat(mydf$rawtext)
+mydf<-mydf[mydf$language=="english",]
+mydf$language<-NULL
+```
+
+## Creating the N-grams
+
+We will use the built-in packages and libraries of R to create the different N-grams.
+
+```{r}
+ngram.1<- data.frame(table(NGramTokenizer(mydf, Weka_control(min=1, max=1))))
+ngram.2<- data.frame(table(NGramTokenizer(mydf, Weka_control(min=2, max=2))))
+ngram.3<- data.frame(table(NGramTokenizer(mydf, Weka_control(min=3, max=3))))
+names(ngram.1)[names(ngram.1)=='Var1']<-'Text'
+names(ngram.2)[names(ngram.2)=='Var1']<-'Text'
+names(ngram.3)[names(ngram.3)=='Var1']<-'Text'
+
+#Reorder N-grams based on word frequencies
+ngram.1<- ngram.1[order(ngram.1$Freq, decreasing=TRUE),]
+ngram.2<- ngram.2[order(ngram.2$Freq, decreasing=TRUE),]
+ngram.3<- ngram.3[order(ngram.3$Freq, decreasing=TRUE),]
+
+#Save the N-grams in separate files
+saveRDS(ngram.1, file = "myUnigram.RDS")
+saveRDS(ngram.2, file = "myBigram.RDS")
+saveRDS(ngram.2, file = "myTrigram.RDS")
+```
+
+## N-gram histogram plots
+
+We will now draw some basic bar plots to view the word frequencies.
+
+```{r}
+barplot(ngram.1$Freq[1:10],names.arg=ngram.1$Text[1:10],las=2)
+barplot(ngram.2$Freq[1:10],names.arg=ngram.2$Text[1:10],las=2)
+barplot(ngram.3$Freq[1:10],names.arg=ngram.3$Text[1:10],las=2)
+```
+
+## Data coverage
+
+We will now try to find the number of unique words which will required to cover 50% and 90% of the language.
+
+```{r}
+tot_words<-sum(ngram.1$Freq)
+t50<-0.5*tot_words
+t90<-0.9*tot_words
+
+j<-0
+i<-1
+while(j<t50){
+      j<-j+ngram.1[i,]$Freq
+      i<-i+1
+}
+words50<-i
+words50
+while(j<t90){
+      j<-j+ngram.1[i,]$Freq
+      i<-i+1
+}
+words90<-i
+words90
+```
+
+We find that around 140 words are required to cover 50% of the language and 7414 words are required to cover 90% of the language.
+
+This whole exercise has given us some context for further analysis and modelling. We will use this as a base to proceed with the project.
